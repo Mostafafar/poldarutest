@@ -292,12 +292,26 @@ def payam_search_products(keyword, page=1, page_size=10):
     if not headers: return []
     try:
         response = requests.get(f"{PAYAM_API_BASE}/products", headers=headers, params={"Keyword": keyword, "Page": page, "PageSize": page_size}, timeout=10)
-        if response.status_code == 200: return response.json().get('Items', [])
+        if response.status_code == 200:
+            data = response.json()
+            # اصلاح: کلیدها با حروف کوچک هستند
+            items = data.get('items', [])
+            # اصلاح: price ممکن است null باشد
+            for item in items:
+                if item.get('price') is None:
+                    item['price'] = 0
+            return items
         elif response.status_code == 401:
             if payam_refresh_token_func():
                 headers = get_payam_headers()
                 response = requests.get(f"{PAYAM_API_BASE}/products", headers=headers, params={"Keyword": keyword, "Page": page, "PageSize": page_size}, timeout=10)
-                if response.status_code == 200: return response.json().get('Items', [])
+                if response.status_code == 200:
+                    data = response.json()
+                    items = data.get('items', [])
+                    for item in items:
+                        if item.get('price') is None:
+                            item['price'] = 0
+                    return items
         return []
     except Exception as e:
         logging.error(f"❌ Payam Search error: {str(e)}")
