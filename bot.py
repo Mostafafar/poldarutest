@@ -290,29 +290,63 @@ def get_payam_headers():
 def payam_search_products(keyword, page=1, page_size=10):
     headers = get_payam_headers()
     if not headers: return []
-    try:
+    
+    def fetch_data():
         response = requests.get(f"{PAYAM_API_BASE}/products", headers=headers, params={"Keyword": keyword, "Page": page, "PageSize": page_size}, timeout=10)
         if response.status_code == 200:
             data = response.json()
-            # اصلاح: کلیدها با حروف کوچک هستند
             items = data.get('items', [])
-            # اصلاح: price ممکن است null باشد
             for item in items:
                 if item.get('price') is None:
                     item['price'] = 0
             return items
-        elif response.status_code == 401:
+        return []
+    
+    try:
+        items = fetch_data()
+        if not items and len(keyword) > 0:
+            # اگر توکن منقضی شده باشد
             if payam_refresh_token_func():
                 headers = get_payam_headers()
-                response = requests.get(f"{PAYAM_API_BASE}/products", headers=headers, params={"Keyword": keyword, "Page": page, "PageSize": page_size}, timeout=10)
-                if response.status_code == 200:
-                    data = response.json()
-                    items = data.get('items', [])
-                    for item in items:
-                        if item.get('price') is None:
-                            item['price'] = 0
-                    return items
-        return []
+                items = fetch_data()
+        
+        # ===== مرتب‌سازی هوشمند =====
+        # 1. اولویت اول: میزان تشابه نام (نامی که دقیقاً با عبارت جستجو شروع می‌شود بالاتر)
+        # 2. اولویت دوم: داروهایی که قیمت دارند بالاتر از نامشخص‌ها
+        # 3. اولویت سوم: طول نام (نام‌های کوتاه‌تر بالاتر)
+        
+        search_lower = keyword.lower().strip()
+        
+        def sort_key(item):
+            name_fa = (item.get('fullNameFa') or '').strip().lower()
+            name_en = (item.get('fullNameEn') or '').strip().lower()
+            price = item.get('price', 0)
+            
+            # امتیاز تشابه
+            # 0 = دقیقاً برابر
+            # 1 = با عبارت جستجو شروع می‌شود
+            # 2 = عبارت جستجو در ابتدای کلمات وجود دارد
+            # 3 = عبارت جستجو در هر جای نام وجود دارد
+            if name_fa == search_lower or name_en == search_lower:
+                relevance = 0
+            elif name_fa.startswith(search_lower) or name_en.startswith(search_lower):
+                relevance = 1
+            elif f" {search_lower}" in name_fa or f" {search_lower}" in name_en:
+                relevance = 2
+            else:
+                relevance = 3
+            
+            # قیمت: 0 (دارد) یا 1 (ندارد) - داروهایی که قیمت دارند اولویت بالاتری دارند
+            has_price = 0 if price and price > 0 else 1
+            
+            # طول نام (کوتاه‌تر = بهتر)
+            name_length = len(name_fa) if name_fa else len(name_en)
+            
+            return (relevance, has_price, name_length, name_fa)
+        
+        items.sort(key=sort_key)
+        return items
+        
     except Exception as e:
         logging.error(f"❌ Payam Search error: {str(e)}")
         return []
