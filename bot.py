@@ -1081,6 +1081,7 @@ def place_order():
     db.execute("DELETE FROM drugs WHERE ordered = 1 AND user_id = ? AND type != 'quota'", (session['user_id'],)); db.commit(); return jsonify({'success': True})
 
 @app.route('/api/search_with_stock')
+@app.route('/api/search_with_stock')
 @login_required
 def search_with_stock():
     q = request.args.get('q', '')
@@ -1091,11 +1092,25 @@ def search_with_stock():
     for item in api_results:
         drug_name = item.get('fullNameFa') or item.get('fullNameEn') or ''
         payam_code = item.get('payamCode', '')
-        price = item.get('price', 0)
+        price = item.get('price')
+        if price is None:
+            price = 0
         row = db.execute("SELECT SUM(quantity) as total FROM inventory WHERE user_id = ? AND (name = ? OR payam_code = ?)", (user_id, drug_name, payam_code)).fetchone()
         pharmacy_qty = row['total'] or 0
         nearest_row = db.execute("SELECT expiry_date FROM inventory WHERE user_id = ? AND (name = ? OR payam_code = ?) AND expiry_date IS NOT NULL AND expiry_date != '' ORDER BY expiry_date ASC LIMIT 1", (user_id, drug_name, payam_code)).fetchone()
-        result.append({'name': drug_name,'fullNameEn': item.get('fullNameEn',''),'payam_code': payam_code,'price': price,'warehouse_qty': 0,'pharmacy_qty': pharmacy_qty,'nearest_expiry': nearest_row['expiry_date'] if nearest_row else '-'})
+        result.append({
+            'name': drug_name,
+            'fullNameEn': item.get('fullNameEn', ''),
+            'payam_code': payam_code,
+            'price': price,
+            'warehouse_qty': 0,
+            'pharmacy_qty': pharmacy_qty,
+            'nearest_expiry': nearest_row['expiry_date'] if nearest_row else '-'
+        })
+    
+    # ✅ مرتب‌سازی: اول داروهای دارای قیمت، بعد داروهای بدون قیمت
+    result.sort(key=lambda x: (x['price'] is None or x['price'] == 0, x['name']))
+    
     return jsonify(result)
 
 @app.route('/api/get_inventory_grouped_by_expiry')
